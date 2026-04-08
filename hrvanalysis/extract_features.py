@@ -11,6 +11,9 @@ from scipy import interpolate
 from scipy import signal
 from astropy.timeseries import LombScargle
 
+# Compatibility numpy 1.x / 2.x
+_trapz = getattr(np, 'trapezoid', None) or getattr(np, 'trapz', None)
+
 # limit functions that user might import using "from hrv-analysis import *"
 __all__ = ['get_time_domain_features', 'get_frequency_domain_features',
            'get_geometrical_features', 'get_poincare_plot_features',
@@ -100,31 +103,31 @@ def get_time_domain_features(nn_intervals: List[float], pnni_as_percent: bool = 
     length_int = len(nn_intervals) - 1 if pnni_as_percent else len(nn_intervals)
 
     # Basic statistics
-    mean_nni = np.mean(nn_intervals)
-    median_nni = np.median(nn_intervals)
-    range_nni = max(nn_intervals) - min(nn_intervals)
+    mean_nni = np.nanmean(nn_intervals)
+    median_nni = np.nanmedian(nn_intervals)
+    range_nni = np.nanmax(nn_intervals) - np.nanmin(nn_intervals)
 
-    sdsd = np.std(diff_nni)
-    rmssd = np.sqrt(np.mean(diff_nni ** 2))
+    sdsd = np.nanstd(diff_nni)
+    rmssd = np.sqrt(np.nanmean(diff_nni ** 2))
 
-    nni_50 = sum(np.abs(diff_nni) > 50)
+    nni_50 = np.nansum(np.abs(diff_nni) > 50)
     pnni_50 = 100 * nni_50 / length_int
-    nni_20 = sum(np.abs(diff_nni) > 20)
+    nni_20 = np.nansum(np.abs(diff_nni) > 20)
     pnni_20 = 100 * nni_20 / length_int
 
     # Feature found on github and not in documentation
     cvsd = rmssd / mean_nni
 
     # Features only for long term recordings
-    sdnn = np.std(nn_intervals, ddof=1)  # ddof = 1 : unbiased estimator => divide std by n-1
+    sdnn = np.nanstd(nn_intervals, ddof=1)  # ddof = 1 : unbiased estimator => divide std by n-1
     cvnni = sdnn / mean_nni
 
     # Heart Rate equivalent features
     heart_rate_list = np.divide(60000, nn_intervals)
-    mean_hr = np.mean(heart_rate_list)
-    min_hr = min(heart_rate_list)
-    max_hr = max(heart_rate_list)
-    std_hr = np.std(heart_rate_list)
+    mean_hr = np.nanmean(heart_rate_list)
+    min_hr = np.nanmin(heart_rate_list)
+    max_hr = np.nanmax(heart_rate_list)
+    std_hr = np.nanstd(heart_rate_list)
 
     time_domain_features = {
         'mean_nni': mean_nni,
@@ -424,11 +427,11 @@ def _get_features_from_psd(freq: List[float], psd: List[float], vlf_band: namedt
     hf_indexes = np.logical_and(freq >= hf_band[0], freq < hf_band[1])
 
     # Integrate using the composite trapezoidal rule
-    lf = np.trapz(y=psd[lf_indexes], x=freq[lf_indexes])
-    hf = np.trapz(y=psd[hf_indexes], x=freq[hf_indexes])
+    lf = _trapz(y=psd[lf_indexes], x=freq[lf_indexes])
+    hf = _trapz(y=psd[hf_indexes], x=freq[hf_indexes])
 
     # total power & vlf : Feature often used for  "long term recordings" analysis
-    vlf = np.trapz(y=psd[vlf_indexes], x=freq[vlf_indexes])
+    vlf = _trapz(y=psd[vlf_indexes], x=freq[vlf_indexes])
     total_power = vlf + lf + hf
 
     lf_hf_ratio = lf / hf
@@ -536,9 +539,9 @@ def get_poincare_plot_features(nn_intervals: List[float]) -> dict:
     """
     diff_nn_intervals = np.diff(nn_intervals)
     # measures the width of poincare cloud
-    sd1 = np.sqrt(np.std(diff_nn_intervals, ddof=1) ** 2 * 0.5)
+    sd1 = np.sqrt(np.nanstd(diff_nn_intervals, ddof=1) ** 2 * 0.5)
     # measures the length of the poincare cloud
-    sd2 = np.sqrt(2 * np.std(nn_intervals, ddof=1) ** 2 - 0.5 * np.std(diff_nn_intervals, ddof=1) ** 2)
+    sd2 = np.sqrt(2 * np.nanstd(nn_intervals, ddof=1) ** 2 - 0.5 * np.nanstd(diff_nn_intervals, ddof=1) ** 2)
     ratio_sd2_sd1 = sd2 / sd1
 
     poincare_plot_features = {
