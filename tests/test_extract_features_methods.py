@@ -5,6 +5,7 @@ import os
 import unittest
 import numpy as np
 import pandas as pd
+import random
 from hrvanalysis.extract_features import (get_time_domain_features, get_geometrical_features,
                                           _create_interpolated_timestamp_list, get_sampen,
                                           get_csi_cvi_features, get_poincare_plot_features,
@@ -21,6 +22,23 @@ def load_test_data(path):
     nn_intervals = list(map(lambda x: int(x.strip()), lines))
     return nn_intervals
 
+def generate_corrupted_data(original_list: list) -> list:
+        """
+        Simulates signal loss by injecting 10 random windows of NaN values 
+        (size 1-5) into a copy of the list.
+        """
+        nn_intervals_with_nan = list(original_list)
+        n = len(nn_intervals_with_nan)
+
+        # Pick 10 random starting indices
+        start_indices = random.sample(range(n - 5), 10)
+        for start_idx in start_indices:
+            window_size = random.randint(1, 5)
+            for i in range(window_size):
+                if start_idx + i < n:
+                    nn_intervals_with_nan[start_idx + i] = np.nan
+
+        return nn_intervals_with_nan
 
 class ExtractFeaturesTestCase(unittest.TestCase):
     """Class for UniTests of different methods in extract_features module"""
@@ -127,6 +145,49 @@ class ExtractFeaturesTestCase(unittest.TestCase):
         except KeyError:
             self.fail()
 
+
+
+    def test_if_frequency_domain_features_are_not_nan(self):
+        """
+        Validates that the extraction logic correctly handles corrupted signals (NaN).
+        This test confirms that 'nan-aware' functions (nanmean, nanstd, etc.) prevent NaN propagation 
+        to the final HRV metrics.
+        """
+        nn_intervals = load_test_data(TEST_DATA_FILENAME)
+
+        # Simulate intermittent sensor contact or signal loss by injecting random NaN windows
+        nn_intervals_with_nan = generate_corrupted_data(nn_intervals)
+
+        # Print raw input for manual verification of NaN distribution within the signal
+        print("\n" + "="*80)
+        print("INPUT NN-INTERVALS (RAW VECTOR WITH INJECTED NaN):")
+        print(nn_intervals_with_nan)
+        print("="*80 + "\n")
+
+        # Process corrupted data
+        function_time_domain_features = get_time_domain_features(nn_intervals=nn_intervals_with_nan)
+        function_csi_cvi_features = get_csi_cvi_features(nn_intervals_with_nan)
+
+        # Display output for manual sanity check of calculated metrics
+        print("OUTPUT HRV FEATURES (SUCCESSFULLY COMPUTED FROM DATA EXCLUDING NaNs):")
+        print(function_time_domain_features)
+        print(function_csi_cvi_features)
+
+        # Audit time-domain results to identify any metrics that failed to filter out the NaNs
+        nans_time = [
+            k for k, v in function_time_domain_features.items() 
+            if isinstance(v, (float, np.float64)) and np.isnan(v)
+        ]
+        
+        # Audit non-linear domain results for potential NaN leakage
+        nans_csi = [
+            k for k, v in function_csi_cvi_features.items() 
+            if isinstance(v, (float, np.float64)) and np.isnan(v)
+        ]
+
+        # Assert that the list of "faulty keys" is empty
+        self.assertListEqual(nans_time, [], f"NaN values detected in Time Domain output: {nans_time}")
+        self.assertListEqual(nans_csi, [], f"NaN values detected in CSI/CVI output: {nans_csi}")
 
 if __name__ == '__main__':
 
